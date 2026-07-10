@@ -114,30 +114,7 @@ export default function LoginScreen({ onLogin, isLoading, error }: LoginScreenPr
             )}
           </button>
         </form>
-
-        {/* Demo Accounts Quick Select */}
-        <div className="mt-8 pt-6 border-t border-slate-800/80">
-          <div className="flex items-center gap-1.5 mb-3 text-xs font-serif tracking-widest text-[#C5A059]/70 uppercase">
-            <HelpCircle className="w-4 h-4 text-[#C5A059]/60" />
-            บัญชีตัวละครเพื่อใช้ทดสอบด่วน (Demo)
-          </div>
-          <div className="grid grid-cols-2 gap-2.5">
-            {demoAccounts.map((account) => (
-              <button
-                key={account.id}
-                onClick={() => selectDemo(account.id)}
-                disabled={isLoading}
-                className="text-left bg-[#0A0B0E]/40 hover:bg-[#0A0B0E]/90 border border-slate-800/60 hover:border-[#C5A059]/40 p-2.5 rounded-xl transition-all duration-300 text-xs group disabled:opacity-50"
-              >
-                <div className="font-semibold text-slate-300 group-hover:text-[#C5A059] font-serif truncate">
-                  {account.name}
-                </div>
-                <div className="text-[10px] text-slate-500 flex justify-between items-center mt-1">
-                  <span>{account.class}</span>
-                  <span className="text-[#C5A059]/50">{account.tarot}</span>
-                </div>
-              </button>
-            ))}
+        
           </div>
         </div>
       </motion.div>
