@@ -1,0 +1,6 @@
+{
+  "name": "Character Sheet Dashboard",
+  "description": "แดชบอร์ดแสดงผลข้อมูลตัวละคร ดึงข้อมูล status, skill และ bag จาก Supabase เพื่อแสดงผลตาม discord-id",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
