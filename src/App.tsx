@@ -16,6 +16,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"status" | "skill" | "bag">("status");
   const [isAllocating, setIsAllocating] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "loading" } | null>(null);
 
   const showToast = (message: string, type: "success" | "error" | "loading", duration = 3000) => {
@@ -47,12 +48,14 @@ export default function App() {
       apikey: SUPABASE_KEY,
       Authorization: `Bearer ${SUPABASE_KEY}`,
       "Content-Type": "application/json",
-      "Prefer": "return=minimal"
+      "Prefer": "return=representation" // Request updated row content to verify write success
     };
+
+    const targetIdStr = character.status["discord-id"].toString();
 
     try {
       const response = await fetch(
-        `${SUPABASE_URL}/${encodeURIComponent("Player's Skill")}?discord-id=eq.${encodeURIComponent(character.status["discord-id"])}`,
+        `${SUPABASE_URL}/${encodeURIComponent("Player's Skill")}?discord-id=eq.${encodeURIComponent(targetIdStr)}`,
         {
           method: "PATCH",
           headers,
@@ -64,26 +67,96 @@ export default function App() {
       );
 
       if (!response.ok) {
-        throw new Error("ไม่สามารถบันทึกแต้มลงในฐานข้อมูลได้");
+        const errorText = await response.text();
+        throw new Error(`ไม่สามารถบันทึกแต้มได้: ${errorText || response.statusText}`);
       }
 
-      // Success! Update local state
+      const data = await response.json();
+      
+      // If representation is empty, it means the row filter didn't match anything
+      if (!data || data.length === 0) {
+        throw new Error("ไม่พบข้อมูลทักษะที่ตรงกับ Discord ID นี้ในฐานข้อมูล Supabase");
+      }
+
+      const updatedRow = data[0];
+
+      // Success! Update local state with confirmed database values
       setCharacter(prev => {
         if (!prev) return null;
         return {
           ...prev,
           skill: {
             ...prev.skill,
-            "ATB": newAtb,
-            [attrKey]: newValue
+            "ATB": updatedRow.ATB ?? newAtb,
+            [attrKey]: updatedRow[attrKey] ?? newValue
           }
         };
       });
-      showToast(`เพิ่มแต้มทักษะ ${attrKey} สำเร็จ!`, "success");
+      showToast(`เพิ่มแต้มทักษะ ${attrKey} สำเร็จและอัปเดตลง Supabase เรียบร้อย!`, "success");
     } catch (err: any) {
+      console.error("Allocation error:", err);
       showToast(err.message || "เกิดข้อผิดพลาดกรุณาลองใหม่", "error");
     } finally {
       setIsAllocating(false);
+    }
+  };
+
+  const handleSync = async () => {
+    if (!character) return;
+    setIsSyncing(true);
+    showToast("กำลังรีเฟรชข้อมูลจาก Supabase...", "loading");
+
+    const discordId = character.status["discord-id"].toString();
+    const headers = {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+    };
+
+    try {
+      const [statusRes, skillRes, bagRes] = await Promise.all([
+        fetch(`${SUPABASE_URL}/${encodeURIComponent("Player's Status")}?discord-id=eq.${encodeURIComponent(discordId)}`, { headers }),
+        fetch(`${SUPABASE_URL}/${encodeURIComponent("Player's Skill")}?discord-id=eq.${encodeURIComponent(discordId)}`, { headers }),
+        fetch(`${SUPABASE_URL}/${encodeURIComponent("Player's Bag")}?discord-id=eq.${encodeURIComponent(discordId)}`, { headers }),
+      ]);
+
+      if (!statusRes.ok || !skillRes.ok || !bagRes.ok) {
+        throw new Error("รีเฟรชข้อมูลล้มเหลว กรุณาลองอีกครั้ง");
+      }
+
+      const [statusData, skillData, bagData] = await Promise.all([
+        statusRes.json() as Promise<CharacterStatus[]>,
+        skillRes.json() as Promise<CharacterSkill[]>,
+        bagRes.json() as Promise<CharacterBag[]>,
+      ]);
+
+      const hasStatus = statusData && statusData.length > 0;
+      const hasSkill = skillData && skillData.length > 0;
+      const hasBag = bagData && bagData.length > 0;
+
+      if (!hasStatus && !hasSkill && !hasBag) {
+        throw new Error("ไม่พบข้อมูลตัวละครนี้บน Supabase");
+      }
+
+      const statusObj = hasStatus ? statusData[0] : character.status;
+      statusObj["discord-id"] = discordId;
+
+      const skillObj = hasSkill ? skillData[0] : character.skill;
+      skillObj["discord-id"] = discordId;
+
+      const bagObj = hasBag ? bagData[0] : character.bag;
+      bagObj["discord-id"] = discordId;
+
+      setCharacter({
+        status: statusObj,
+        skill: skillObj,
+        bag: bagObj,
+      });
+
+      showToast("รีเฟรชข้อมูลตัวละครเสร็จสิ้น!", "success");
+    } catch (err: any) {
+      showToast(err.message || "เกิดข้อผิดพลาดในการเชื่อมต่อ", "error");
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -144,6 +217,7 @@ export default function App() {
         Sanity: "ปกติ",
         SP: 100,
       };
+      statusObj["discord-id"] = discordId; // Enforce exact string to prevent precision loss (bigint)
 
       const skillObj: CharacterSkill = hasSkill ? skillData[0] : {
         "discord-id": discordId,
@@ -160,6 +234,7 @@ export default function App() {
         C: 0, "C1-1": null, "C1-2": null, "C1-3": null, "C2-1": null, "C2-2": null, "C2-3": null, "C3-1": null, "C3-2": null, "C3-3": null,
         L: 0, "L1-1": null, "L1-2": null, "L1-3": null, "L2-1": null, "L2-2": null, "L2-3": null, "L3-1": null, "L3-2": null, "L3-3": null,
       };
+      skillObj["discord-id"] = discordId; // Enforce exact string to prevent precision loss (bigint)
 
       const bagObj: CharacterBag = hasBag ? bagData[0] : {
         "discord-id": discordId,
@@ -172,6 +247,7 @@ export default function App() {
         Slot: 5,
         "Add-Ons": 0,
       };
+      bagObj["discord-id"] = discordId; // Enforce exact string to prevent precision loss (bigint)
 
       setCharacter({
         status: statusObj,
@@ -226,8 +302,17 @@ export default function App() {
             <span className="text-[#C5A059] font-mono font-semibold">{character.status["discord-id"]}</span>
           </div>
           <button
+            onClick={handleSync}
+            disabled={isSyncing}
+            className="flex items-center gap-2 px-4 py-2 bg-[#0F1117] hover:bg-[#161920] border border-[#C5A059]/20 hover:border-[#C5A059]/50 rounded-xl text-xs text-[#C5A059] font-semibold transition-all duration-300 shadow-md disabled:opacity-50 cursor-pointer"
+            title="รีเฟรชข้อมูลจาก Supabase"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
+            <span className="hidden xs:inline">ซิงค์ข้อมูล</span>
+          </button>
+          <button
             onClick={handleLogout}
-            className="flex items-center gap-2 px-4 py-2 bg-[#0F1117] hover:bg-[#161920] border border-[#C5A059]/20 hover:border-[#C5A059]/50 rounded-xl text-xs text-[#C5A059] font-semibold transition-all duration-300 shadow-md"
+            className="flex items-center gap-2 px-4 py-2 bg-[#0F1117] hover:bg-[#161920] border border-red-500/20 hover:border-red-500/50 rounded-xl text-xs text-red-400 hover:text-red-300 font-semibold transition-all duration-300 shadow-md cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
             <span>ค้นหาใหม่</span>
